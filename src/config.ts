@@ -13,6 +13,15 @@ export interface Config {
   corsOrigin: string[] | boolean;
   logLevel: string;
   apiToken?: string;
+  // HLS output (ADR-006). hlsUrlTtl is the presigned-URL lifetime (seconds) for
+  // segment URIs in a manifest; liveRecencyWindow is how recent the latest
+  // segment must be (seconds) for the recency fallback to classify a flow live.
+  hlsUrlTtl: number;
+  liveRecencyWindow: number;
+  // Built-in read-only inspector UI (ADR-007 D4). When true, the gateway serves
+  // static assets and the /ui route; when false they are not registered at all
+  // (lean conformance API). Optional, NOT in REQUIRED_ENV, default ON.
+  enableUi: boolean;
 }
 
 // Shared defaults so a single source defines them. createS3URL reads the region
@@ -21,6 +30,25 @@ export interface Config {
 export const DEFAULT_PORT = 8000;
 export const DEFAULT_AWS_REGION = 'eu-north-1';
 export const DEFAULT_LOG_LEVEL = 'info';
+// HLS output defaults (ADR-006 D6/D3). 6h presigned-URL TTL outlives a typical
+// VOD session; 30s recency window for live-vs-VOD fallback.
+export const DEFAULT_HLS_URL_TTL = 21600;
+export const DEFAULT_LIVE_RECENCY_WINDOW = 30;
+// Inspector UI defaults ON (ADR-007 D4): the inspector is the human value of
+// "single-click runnable", is read-only and cheap. Set ENABLE_UI=false to drop it.
+export const DEFAULT_ENABLE_UI = true;
+
+// Parse a boolean env var. Treats unset as the provided default; "false"/"0"/"no"
+// (case-insensitive) as false; everything else present as true.
+export const parseBool = (
+  value: string | undefined,
+  fallback: boolean
+): boolean => {
+  if (value === undefined) return fallback;
+  const v = value.trim().toLowerCase();
+  if (v === 'false' || v === '0' || v === 'no' || v === '') return false;
+  return true;
+};
 
 // Parse a comma-separated CORS_ORIGIN allow-list, or `true` (reflect any origin)
 // when it is unset.
@@ -72,6 +100,13 @@ export const loadConfig = (): Config => {
     awsRegion: process.env.AWS_REGION || DEFAULT_AWS_REGION,
     corsOrigin: parseCorsOrigin(process.env.CORS_ORIGIN),
     logLevel: process.env.LOG_LEVEL || DEFAULT_LOG_LEVEL,
-    apiToken: process.env.API_TOKEN
+    apiToken: process.env.API_TOKEN,
+    hlsUrlTtl: process.env.HLS_URL_TTL
+      ? Number(process.env.HLS_URL_TTL)
+      : DEFAULT_HLS_URL_TTL,
+    liveRecencyWindow: process.env.LIVE_RECENCY_WINDOW
+      ? Number(process.env.LIVE_RECENCY_WINDOW)
+      : DEFAULT_LIVE_RECENCY_WINDOW,
+    enableUi: parseBool(process.env.ENABLE_UI, DEFAULT_ENABLE_UI)
   };
 };
