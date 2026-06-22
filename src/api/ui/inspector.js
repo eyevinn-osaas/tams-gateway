@@ -29,10 +29,19 @@
 
   // Visible build stamp: bump on every UI change so a reload visibly confirms
   // the browser picked up fresh JS (not a stale cached bundle).
-  var BUILD = 'build 2026-06-22 #18';
+  var BUILD = 'build 2026-06-22 #20';
 
   var statusEl = document.getElementById('status');
   var viewEl = document.getElementById('view');
+
+  // Section render functions append through mount() rather than to viewEl
+  // directly, so a view can route panels into a column layout (the flow detail
+  // puts the player in a wide left column and the metadata + navigator in a
+  // right column, see renderFlowDetail). Defaults to viewEl; clearView resets it.
+  var mountTarget = viewEl;
+  function mount(node) {
+    mountTarget.appendChild(node);
+  }
 
   var buildEl = document.getElementById('build');
   if (buildEl) buildEl.textContent = BUILD;
@@ -73,6 +82,7 @@
 
   function clearView() {
     viewEl.innerHTML = '';
+    mountTarget = viewEl;
   }
 
   function setStatus(text, isError) {
@@ -406,8 +416,6 @@
         );
         viewEl.appendChild(el('h2', { text: flow.label || flow.id }));
 
-        renderMetaPanel(flow);
-
         var isLive = type === 'live';
 
         // Resolve the effective window start (TAI epoch seconds). An explicit
@@ -427,11 +435,28 @@
         }
 
         if (isPlayable(flow)) {
+          // Wide layout (16:9 desktop): the player fills a large left column,
+          // the time navigator + flow metadata sit in a narrower right column,
+          // and the segments table spans full width below. Collapses to a
+          // single column on narrow / portrait screens (see .detail-grid CSS).
+          var colMain = el('div', { class: 'detail-main' });
+          var colSide = el('div', { class: 'detail-side' });
+          viewEl.appendChild(
+            el('div', { class: 'detail-grid' }, [colMain, colSide])
+          );
+
+          mountTarget = colMain;
+          renderPlayer(flow, isLive ? 'live' : 'window', effectiveStart);
+
+          mountTarget = colSide;
           if (!isLive) {
             renderNavigator(flow.id, span, effectiveStart);
           }
-          renderPlayer(flow, isLive ? 'live' : 'window', effectiveStart);
+          renderMetaPanel(flow);
+
+          mountTarget = viewEl;
         } else {
+          renderMetaPanel(flow);
           viewEl.appendChild(
             notice(
               'cant-play',
@@ -461,7 +486,7 @@
       section.appendChild(
         notice('empty', 'No segments stored for this flow yet.')
       );
-      viewEl.appendChild(section);
+      mount(section);
       return;
     }
 
@@ -571,7 +596,7 @@
       })
     );
 
-    viewEl.appendChild(section);
+    mount(section);
   }
 
   function renderMetaPanel(flow) {
@@ -597,7 +622,7 @@
         el('dd', { class: 'mono', text: JSON.stringify(flow.tags) })
       );
     }
-    viewEl.appendChild(el('section', { class: 'panel' }, [meta]));
+    mount(el('section', { class: 'panel' }, [meta]));
   }
 
   // mode: 'live' serves the live edge (?type=live); 'window' serves a single
@@ -661,7 +686,12 @@
     // hls.js keeps doing its normal live manifest reloads, read as "hammering").
     // The live mux flow is video-only (no audio track), so muting costs nothing;
     // native controls still expose unmute for flows that do carry audio.
-    var video = el('video', { controls: '', playsinline: '', muted: '' });
+    var video = el('video', {
+      controls: '',
+      playsinline: '',
+      muted: '',
+      autoplay: ''
+    });
     video.muted = true;
 
     // Prominent "watching" wall-clock readout (local time + how far behind).
@@ -766,7 +796,7 @@
       'aria-live': 'polite'
     });
     wrap.appendChild(playStatus);
-    viewEl.appendChild(wrap);
+    mount(wrap);
 
     attachPlayer(video, absoluteM3u8, mode, playStatus, clock);
 
@@ -923,12 +953,43 @@
         if (hls.playingDate) return hls.playingDate;
         return null;
       });
+      // Stop refreshing the live manifest while the player is paused. A live
+      // playlist reloads every target-duration; when autoplay is blocked (a
+      // browser policy we cannot override from JS) the player sits paused and
+      // those steady 2s reloads look like "hammering" with no playback. stopLoad
+      // halts the refresh + fragment loop while paused; startLoad resumes it, and
+      // for live we snap back near the edge so resuming does not replay stale
+      // buffer minutes behind. VOD has no manifest refresh, so this only quiets
+      // the live case and is harmless for windows.
+      var isLiveMode = mode === 'live';
+      function seekLiveEdge() {
+        if (!isLiveMode) return;
+        var s = video.seekable;
+        if (s && s.length) {
+          var end = s.end(s.length - 1);
+          if (end - video.currentTime > 12) {
+            video.currentTime = Math.max(0, end - 6);
+          }
+        }
+      }
+      video.addEventListener('pause', function () {
+        if (!video.ended) hls.stopLoad();
+      });
+      video.addEventListener('play', function () {
+        hls.startLoad();
+        setTimeout(seekLiveEdge, 400);
+      });
       hls.on(Hls.Events.MANIFEST_PARSED, function () {
         playStatus.textContent = '';
-        // Best-effort autostart so live does not sit waiting for a gesture; if
-        // the browser blocks unmuted autoplay the user uses the native control.
+        // Best-effort muted autostart. If the browser blocks it, stop the load
+        // loop so a paused player does not keep refreshing the live manifest;
+        // pressing play resumes it (startLoad) and snaps to the live edge.
         var p = video.play();
-        if (p && p.catch) p.catch(function () {});
+        if (p && p.catch)
+          p.catch(function () {
+            hls.stopLoad();
+            playStatus.textContent = 'Press play to start playback.';
+          });
       });
       hls.on(Hls.Events.ERROR, function (_evt, data) {
         if (data && data.fatal) {
@@ -961,7 +1022,7 @@
         html: '<span class="spinner" aria-hidden="true"></span>Loading segments…'
       })
     ]);
-    viewEl.appendChild(section);
+    mount(section);
 
     var tbody = el('tbody', null, []);
     var caption = el('caption', { text: '' });
