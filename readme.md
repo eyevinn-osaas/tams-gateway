@@ -93,6 +93,7 @@ The gateway exposes the TAMS resources:
 | `GET /flows/{id}`                                   | Get a flow                                                |
 | `DELETE /flows/{id}`                                | Delete a flow and its segments                            |
 | `GET /sources`                                      | List sources                                              |
+| `GET /sources/{id}`                                 | Get a source                                              |
 | `POST /flows/{id}/storage`                          | Allocate storage and get presigned PUT URLs               |
 | `POST /flows/{id}/segments`                         | Register a segment for a flow                             |
 | `GET /flows/{id}/segments?timerange=[start_end)`    | List a flow's segments, optionally filtered by range      |
@@ -101,6 +102,7 @@ The gateway exposes the TAMS resources:
 | `GET /flow-delete-requests/{requestId}`             | Get a deletion request                                    |
 | `GET /flows/{id}/output.m3u8?type=live\|vod`        | Playable HLS media playlist for a flow's TS segments      |
 | `GET /service`                                      | Service descriptor (advertises supported event streams)   |
+| `GET /service/storage-backends`                     | List the object-store backends available                  |
 | `POST /service/webhooks`                            | Register a webhook for event notifications                |
 | `GET /service/webhooks`                             | List registered webhooks                                  |
 | `GET /service/webhooks/{webhookId}`                 | Get a webhook                                             |
@@ -116,6 +118,14 @@ automatically.
 the `Link: <...>; rel="next"` response header (or pass the `X-Paging-NextKey` value
 back as the `page` query parameter) to read the next page. Responses also carry
 `X-Paging-Limit`, `X-Paging-Count`, `X-Paging-Reverse-Order` and `X-Paging-Timerange`.
+
+Individual flow and source properties can be read and edited without a full
+`PUT`: `GET`/`PUT`/`DELETE /flows/{id}/{property}` for `description`, `label`,
+`max_bit_rate`, `avg_bit_rate`, `flow_collection` (and `GET`/`PUT
+/flows/{id}/read_only`), and `description` / `label` for sources. Tags are
+managed at `GET /{resource}/{id}/tags` (the whole map) and
+`GET`/`PUT`/`DELETE /{resource}/{id}/tags/{name}` (one tag). Writes to a
+read-only flow return `403`.
 
 ## HLS output
 
